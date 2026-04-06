@@ -1,208 +1,333 @@
-# Building an Autonomous AI Analysis Engine for Data-Intensive Industries
+# Axon: A Nine-Agent Autonomous AI System That Replaced 26 Analyst-Years of Work in 36 Hours
 
-**A Technical Case Study from Prelium**
+**How Two People Built an AI Deal-Sourcing Engine for Commercial Real Estate**
 
-Pierce Millar, Jackson [Redacted], Keegan Tingey
+Pierce Millar & Jackson Kiil
 April 2026
 
 ---
 
 ## Abstract
 
-Over a six-month period, a three-person team built an autonomous AI system capable of processing 13,650 commercial real estate investment opportunities in 36 hours — work that would take a team of analysts several months. The system extracts structured data from unstructured documents, cross-references it against 50+ external data sources, scores opportunities against configurable investment criteria, and learns from every human decision to improve over time. Total infrastructure cost: $48/month. Total AI cost for 197 verified deals: $0.83. This paper describes the architecture, methodology, and results — and explores the broader implications for any industry built on analyzing large volumes of complex documents.
+Over six months, a two-person team built Axon — a nine-agent autonomous AI system that processes commercial real estate investment opportunities at scale. In its first major batch run, Axon analyzed 13,650 properties in 36 hours, scoring each against configurable investment criteria, pulling data from 130+ external tools and APIs, tracing property ownership chains, detecting financial distress signals, and generating institutional-quality analysis reports. The equivalent analyst workload: approximately 54,600 hours, or 26 years of full-time work. The system runs on a $48/month cloud server. Total AI cost for the first 197 deep-verified deals: $0.83.
+
+This paper describes what we built, how it works, and what it means for any industry that runs on analyzing large volumes of complex documents.
 
 ---
 
-## 1. The Problem
+## 1. How This Started
 
-Commercial real estate analysts spend 4-6 hours per deal manually reviewing offering memoranda (OMs) — dense PDF documents ranging from 20 to 200+ pages containing financial data, lease terms, property specifications, market context, and tenant information. A typical mid-market fund receives 50-100 of these per week from broker networks. The analyst's job is to extract roughly 20 key data points from each document, enter them into an Excel model, cross-reference them against public records, score the deal against the firm's investment criteria, and present a recommendation.
+We were hired by a family office to source commercial real estate deals. The task was simple: find undervalued properties, analyze them, and bring the best ones to the investment committee.
 
-The bottleneck is not intelligence — it is throughput. Senior analysts know within minutes whether a deal is interesting. But the mechanical process of extracting, entering, verifying, and formatting data consumes the vast majority of their time. This is a pattern that exists across many industries: insurance underwriting, legal due diligence, medical record review, credit analysis, and regulatory compliance all share the same fundamental structure — high-volume document intake, structured data extraction, multi-source verification, and human decision-making on the output.
+The problem was also simple: we had no connections. We were working through LoopNet and Craigslist — platforms that every private equity fund on the planet had already picked clean. Three weeks in, we looked at each other and said, "We are never going to find anything this way."
+
+So we asked a different question: what if we could analyze every single deal on the market — not one at a time, but all of them at once? What if we could download thousands of properties and have an AI system score all of them overnight, flag the ones worth pursuing, and tell us exactly why?
+
+That question became Axon.
 
 ## 2. What We Built
 
-### 2.1 The Extraction Engine
+### 2.1 The Dashboard
 
-The core of the system is a three-pass extraction pipeline we call BRAID (Bi-directional Retrieval and Iterative Deconfliction):
+The front end is a full web application — React 19, dark Bloomberg-terminal aesthetic, 68 API routes serving live data from a PostgreSQL database holding 12,360+ deals.
 
-**Pass 1 — Extraction.** A large language model (Claude Sonnet) reads the full document and extracts 20 structured fields: property name, address, asking price, capitalization rate, net operating income, square footage, occupancy, tenant information, lease terms, and more. Each field is returned with a confidence score (0-1).
+**The deal funnel:**
 
-**Pass 2 — Verification.** The same document is re-read with a different prompt focused on catching errors. The model is specifically instructed to verify that every extracted number actually appears in the source document. Any field where the Pass 1 and Pass 2 values disagree is flagged.
+| Stage | Deals | What Happens |
+|-------|-------|-------------|
+| Intake | 12,360+ | Every property enters the system and gets scored |
+| Report Cards | 249 | Scored above threshold — gets a one-page summary |
+| Deep Dives | 82 | Full 9-agent analysis with external data enrichment |
+| Active Pipeline | 20 | Actively being pursued — LOIs, broker contact, site visits |
 
-**Pass 3 — Gap-filling.** Missing fields are derived from available data where mathematically possible (e.g., if price and cap rate are known, NOI can be calculated). Remaining gaps are marked as absent rather than estimated.
+The centerpiece is the **Deal Detail page** — a tabbed interface where you can see everything about a property in one place: overview and photos, financials and underwriting, all agent analysis documents, environmental and demographic data, and a deal room with notes, tasks, and activity history.
 
-The result is a structured JSON object with 20 fields, each tagged with a confidence score and source page reference. The extraction cost is $0.004 per document.
+Other views include a filterable deal table, a pipeline kanban board, an interactive map with every property plotted, a side-by-side deal comparison tool, a broker CRM, market analytics dashboards, and a lease calendar.
 
-### 2.2 The Eight-Agent Architecture
+### 2.2 The Nine Agents
 
-After initial extraction, deals that score above a configurable threshold enter a deep analysis pipeline powered by eight specialist AI agents, each with a distinct domain:
+Axon is not one AI. It is nine specialized agents, each with a distinct role, its own set of tools, and its own instructions. They run in a four-phase pipeline — gathering raw data in parallel first, then layering analysis on top, then synthesizing everything into a final verdict.
 
-| Agent | Domain | Example Output |
-|-------|--------|----------------|
-| **Scout** | Market demographics, supply pipeline, population trends | "Tampa industrial vacancy is 4.2%, down 80bps YoY. 1.2M SF under construction within 5 miles." |
-| **Spectre** | Ownership intelligence, entity research, property history | "Owner is a 2019 LLC registered to a family office. Property last traded in 2016 at $6.8M." |
-| **Sentinel** | Environmental risk, flood zones, regulatory exposure | "Property is in FEMA Zone X (minimal flood risk). No EPA facilities within 1 mile." |
-| **Atlas** | Financial underwriting, comparable sales, rent analysis | "Comparable industrial sales in the submarket averaged $215/SF over the past 12 months." |
-| **Arbiter** | Legal risk, liens, litigation, tenant credit | "Anchor tenant (FedEx) has investment-grade credit. No UCC filings against the owner entity." |
-| **Vault** | Macro context, interest rates, capital markets | "10-year Treasury at 4.32%. Industrial cap rates nationally compressed 15bps this quarter." |
-| **Forge** | Physical condition, construction costs, capital expenditure | "28' clear height is market-standard for modern logistics. Roof replacement estimate: $4.50/SF." |
-| **Prism** | Synthesis and citation verification | Cross-references all seven agents' outputs against source documents. Any unsupported claim is flagged or removed. |
+**Phase 1 — Intelligence Gathering (parallel)**
 
-Each agent has access to a curated set of data APIs relevant to its domain. In total, the system connects to 50+ external data sources including the U.S. Census Bureau, Bureau of Labor Statistics, FEMA, EPA, SEC EDGAR, FRED (Federal Reserve Economic Data), HUD, county property appraiser and clerk of court systems across multiple states, and commercial real estate listing platforms.
+| Agent | Role | What It Does |
+|-------|------|-------------|
+| **Scout** | Head of Market Intelligence | Pulls demographics, employment trends, vacancy rates, comparable sales, construction permits, supply pipeline, and satellite/street-level imagery for the property's submarket. Sources: U.S. Census, Bureau of Labor Statistics, HUD, Redfin, Google Street View, permit databases. |
+| **Spectre** | Head of Ownership Intelligence | Traces the property's ownership chain — from the deed, to the registered entity, to the officers and members behind it. Runs background checks. Detects distress signals: late taxes, liens, foreclosure filings, UCC filings, bankruptcy, estate proceedings. Sources: county appraiser/clerk systems across Florida and California, state corporate registries, Enformion, SEC EDGAR. |
+| **Sentinel** | Environmental & Risk Assessment | Checks flood zones, EPA facilities, wetlands, natural disaster history, and environmental contamination risk within a defined radius. Sources: FEMA, EPA, National Wetlands Inventory, OpenFEMA. |
 
-The agents operate in four sequential phases, with agents within each phase running concurrently. After every pipeline run, each agent is automatically graded (A+ through F) on completeness, accuracy, and citation quality. Any agent scoring below A- is diagnosed, has its instructions adjusted, and is re-run — without human intervention.
+**Phase 2a — Financial Analysis (parallel, using Phase 1 data)**
 
-### 2.3 The Quality Harness
+| Agent | Role | What It Does |
+|-------|------|-------------|
+| **Atlas** | Head of Underwriting | Builds three-scenario financial models (base, upside, downside). Runs 10-year cash flow projections, sensitivity analysis on cap rate and occupancy, return waterfalls, and comparable sales analysis. Sources: Redfin, SEC EDGAR cap rates, FRED economics, insurance estimator, proforma engine. |
+| **Arbiter** | Legal & Compliance | Reviews zoning compliance, checks for liens and litigation (lis pendens), reviews tenant credit via SEC filings, and builds a legal risk matrix. Sources: city zoning databases, county clerk records, UCC search, property tax appeals. |
 
-Perhaps the most important part of the system is not what it produces, but how it verifies what it produces. We built a seven-layer quality harness through which every output must pass:
+**Phase 2b — Strategy (parallel, using Phase 1 + 2a data)**
 
-**Layer 1 — Unit Tests (155 tests).** Individual function-level verification. Does the parser handle edge cases? Does the scorer produce consistent results?
+| Agent | Role | What It Does |
+|-------|------|-------------|
+| **Vault** | Capital Markets | Analyzes financing options, sizes debt based on current rates, calculates DSCR sensitivity, matches to potential lenders. Sources: FRED (Treasury yields, SOFR, mortgage rates), FDIC bank data. |
+| **Forge** | Asset Management | Develops value-add strategy, estimates capital expenditure budgets, assesses construction costs, evaluates operational improvements. Sources: BLS construction labor costs, NREL utility rates, construction document analysis. |
 
-**Layer 2 — Integration Tests.** End-to-end flow for each of seven property types (industrial, office, retail, multifamily, self-storage, NNN, mixed-use). A failure in any property type blocks deployment.
+**Phase 3 — Synthesis**
 
-**Layer 3 — Regression Tests.** Every output is compared against 10 saved baseline results. Any field that drifts more than 15% from baseline is flagged.
+| Agent | Role | What It Does |
+|-------|------|-------------|
+| **Prism** | Quality Control & Synthesis | Cross-references every finding from all seven agents against source documents. Any claim that cannot be traced back to a source is flagged or removed. Assembles the master analysis report. |
 
-**Layer 4 — Simulation Battery.** Stress tests: 20 deals sustained throughput, 15 concurrent extractions, malicious input handling, Unicode edge cases, SQL injection attempts, multi-tenant isolation, and crash recovery. 29 of 31 simulations passing.
+The ninth agent is **Axon itself** — the orchestrator. It delegates work to the specialists, monitors their progress, grades their output (A+ through F), and automatically re-runs any agent that scores below A-. It operates 24/7, checking in every 30 minutes, scanning for new deals, and communicating results through Discord.
 
-**Layer 5 — Grade Pipeline (5 sub-layers).** Automated quality scoring:
-- Completeness: Are all 20 fields present with confidence > 0.8?
-- Sanity: Is the cap rate between 1-30%? Is the price positive? Is the year built between 1800 and next year?
-- Cross-reference: Does NOI approximately equal price times cap rate? Does price per square foot approximately equal price divided by square footage?
-- Regression: Does the deal score fall within 2 points of baseline?
-- Audit: Can the score be independently recalculated and match?
+### 2.3 The 130+ Tools
 
-**Layer 6 — Visual QA.** The system opens the actual output files (populated Excel spreadsheets, HTML reports) using computer vision, takes screenshots, and cross-references visible values against the source document. This catches formatting errors, misaligned cells, and display bugs that code-level tests miss.
+Each agent has access to a curated set of data APIs and automation tools. The full inventory:
 
-**Layer 7 — Adversarial Tests (13/13 passing).** Password-protected PDFs, scanned images, Unicode bombs, 500-page documents, empty files, wrong formats, injection attempts, and deliberately misleading data.
+**Government & Public Data (25+)**
+- Census Bureau (demographics, population estimates, housing)
+- Bureau of Labor Statistics (employment, construction labor costs)
+- HUD (fair market rents, USPS vacancy rates)
+- IRS (county-to-county migration flows)
+- FEMA (flood zones, disaster history)
+- EPA (environmental facilities, contamination)
+- National Wetlands Inventory
+- FRED / Federal Reserve (Treasury yields, SOFR, mortgage rates, House Price Index)
+- FDIC (bank branch data)
+- SEC EDGAR (tenant credit, cap rates, debt filings)
+- NREL (utility rates)
+- DOT traffic counts (Florida, California)
 
-The philosophy behind this harness comes from a principle articulated by Phil Bogdanoff at OpenAI: "It's a skill issue if the model doesn't produce accurate output. Your job is to build the right harness, the right prompts, the right eval." The model is capable. The engineering challenge is reliability.
+**County Record Systems (15+ browser automation presets)**
+- Hillsborough, Duval, Orange, Sarasota, Manatee County property appraisers (Florida)
+- Sacramento, Los Angeles County GIS (California)
+- County clerk of court systems (liens, lis pendens, foreclosures)
+- County tax collector systems (delinquency detection)
+- Sunbiz (Florida corporate registry)
+- California Secretary of State entity search
 
-### 2.4 The Learning Loop
+**Commercial Real Estate**
+- Redfin (comparable sales)
+- Warehouse Exchange (industrial listings)
+- Permit aggregators (construction pipeline)
+- Rent comp extraction
+- Insurance cost estimation
+- Construction cost databases
+- Zoning lookup (Tampa, Jacksonville, Orlando, Sacramento)
 
-The system improves with every human decision. When an analyst reviews a deal and agrees with the system's recommendation, that confirmation reinforces the scoring weights. When the analyst disagrees — overriding the system's GO with a NO-GO, or vice versa — the override is captured with context: which fields were checked, why the disagreement occurred, and what the correct decision should have been.
+**People & Entity Intelligence**
+- Enformion ($0.35/search) — full background: name, age, 37+ addresses, phones, emails, relatives, associates, business records
+- Entity chain tracing (LLC → officers → parent entities)
+- Google Street View and aerial imagery
 
-After accumulating sufficient decisions (10+), the system analyzes override patterns: which criteria are most frequently overridden, for which property types, in which markets. It proposes weight adjustments, back-tests them against all historical decisions, and commits the new weights only if the override rate decreases.
+**Analysis & Output**
+- BRAID 3-pass document extraction (20 structured fields per OM at $0.004/deal)
+- Deal scoring engine (configurable 0-100 point system)
+- Proforma engine (3-scenario modeling)
+- A.CRE Bridge (Excel template population)
+- PDF report generation (institutional-quality memos)
+- Email categorization and routing
 
-The trajectory we project based on simulation:
-- **Month 1:** 40% override rate. The system is learning.
-- **Month 3:** 15% override rate. The system knows preferences.
-- **Month 6:** 5% override rate. The system predicts decisions.
-- **Month 12:** 2% override rate. The analyst's judgment is encoded.
+### 2.4 The Scoring Engine
 
-This creates a compounding advantage. After 12 months, a client switching to a competitor would need to retrain the system from scratch — losing a year of accumulated institutional knowledge. With five or more clients, anonymized cross-client intelligence begins to emerge: "Deals with this profile have a 73% close rate across all our clients" or "Asking price is 12% above what similar deals traded for this quarter."
+Every property that enters the system gets scored on a 0-100 scale. The criteria are fully configurable per client — different firms care about different things.
 
-## 3. How We Built It
+**Quick Screen (no API calls, instant):**
+- Cap rate must exceed the risk-free rate (10-year Treasury, pulled live from FRED) plus a 200-basis-point spread
+- Property type must be in the client's target set
 
-### 3.1 Infrastructure
+**Full Scoring (0-100 points):**
 
-The entire system runs on a single DigitalOcean VPS ($48/month): Ubuntu 24.04, 8GB RAM, 4 vCPUs. A Mac Mini M4 ($599) serves as a secondary node for browser automation tasks requiring residential IP addresses (county record systems block datacenter IPs). PostgreSQL handles the database. n8n (open-source) handles workflow orchestration. PM2 manages processes.
+| Category | Points | What It Measures |
+|----------|--------|-----------------|
+| Location | 0-25 | Market quality, submarket fundamentals, demographic trends |
+| Property Type | 0-25 | Alignment with client's investment thesis |
+| Size & Quality | 0-20 | Square footage sweet spot, building class, star rating |
+| Value-Add Signals | 0-20 | Below-market rents, vacancy in strong markets, repositioning potential |
+| Risk Factors | 0 to -10 | Flood zones, construction risk, regulatory issues |
+| Bonus | 0-10 | Pricing below submarket median, confirmed asking price, target size range |
 
-Total infrastructure cost: under $100/month.
+**Disposition tiers:**
+- **Pursue** (85+): Immediate action — contact broker, request OM, begin underwriting
+- **Priority** (70-84): Strong candidate — schedule for deep dive
+- **Review** (50-69): Worth monitoring — add to watchlist
+- **Monitor** (30-49): Below threshold but track for changes
+- **Skip** (<30): Does not meet criteria
 
-### 3.2 Model Economics
+### 2.5 Distress Detection
 
-We use a tiered model strategy to keep AI costs negligible:
+One of Axon's most valuable capabilities is finding motivated sellers before anyone else knows they're motivated. Spectre maintains a **Distress Signal Matrix** that cross-references multiple public record sources:
+
+| Signal | Source | Severity |
+|--------|--------|----------|
+| Late property taxes | County tax collector | HIGH |
+| Foreclosure filing (lis pendens) | County clerk | CRITICAL |
+| Partition action | County clerk | HIGH |
+| Unresolved code violations | City code enforcement | MEDIUM |
+| Dissolved corporate entity | State registry (Sunbiz) | MEDIUM |
+| Multiple recent UCC filings | Secretary of State | MEDIUM |
+| Mortgage maturing within 12 months | County clerk | HIGH |
+| Owner age 70+ | Enformion background check | MEDIUM |
+| Out-of-state owner | Enformion / county appraiser | MEDIUM |
+| Property tax appeal filed | County appraiser | LOW-MEDIUM |
+| Owner bankruptcy | PACER | CRITICAL |
+| Estate/probate filing | County clerk | HIGH |
+| CMBS special servicing | Trustee reports | CRITICAL |
+
+When multiple distress signals stack on a single property, the system escalates it automatically. The benchmark case was a 150,000 SF heavy industrial property in Clearwater, Florida — Spectre traced the ownership chain, found 39 associated addresses, uncovered a $22 million judgment against the owner, and flagged the entity as being in receivership. That is the kind of intelligence that typically requires a private investigator and several days. Axon found it in minutes.
+
+### 2.6 The Ownership Chain
+
+Tracing who actually owns a commercial property is harder than it sounds. Properties are almost never held in personal names — they sit inside LLCs, which are managed by other LLCs, which are owned by trusts or holding companies.
+
+Axon's ownership tracing chain:
+
+1. **County Records** — Pull the deed. Get the entity name on title.
+2. **State Registry** — Search the entity in the state's corporate database (Sunbiz for Florida, SOS for California). Get the officers, members, and registered agent.
+3. **Entity Chain Tracing** — If the officers are themselves LLCs, trace those entities. Repeat until you reach a human name.
+4. **Background Check** — Run the human through Enformion. Get full name, age, date of birth, 37+ historical addresses with dates, phone numbers, emails, relatives, associates, and other business records.
+5. **SEC Cross-Reference** — If the entity structure suggests institutional or REIT involvement, check SEC EDGAR filings.
+
+This chain runs automatically for every deal that enters the deep dive stage. The result is a complete dossier on who owns the property, what else they own, and whether they might be motivated to sell.
+
+## 3. The Numbers
+
+### 3.1 Throughput
+
+The system's first major batch run processed **13,650 properties in 36 hours**. This included ingesting property data, scoring each against investment criteria, and generating summary analyses for every property above threshold.
+
+The database grew to **12,360+ deals** with full structured data. Of those, 249 generated report cards, 82 received full nine-agent deep dives, and 20 entered the active pipeline.
+
+Equivalent human effort at 4 hours per deal for basic screening: **54,600 hours — 26 analyst-years.**
+
+### 3.2 Cost
+
+| Component | Cost |
+|-----------|------|
+| Cloud server (8GB RAM, 4 vCPU) | $48/month |
+| Mac Mini M4 (browser automation node) | $599 one-time |
+| AI extraction per document (BRAID 3-pass) | $0.004 |
+| Deep agent analysis per deal (all 9 agents) | $3-8 |
+| Enformion background checks | $0.35/search |
+| Total AI cost for first 197 verified deals | $0.83 |
+
+For context: a junior CRE analyst costs $65,000-85,000/year plus benefits and can process maybe 2-3 deals per day thoroughly. The system processes hundreds per day at roughly 1% of the cost.
+
+### 3.3 Quality Assurance
+
+The system includes a seven-layer quality harness:
+
+1. **Unit Tests** — 155 automated tests on individual functions
+2. **Integration Tests** — End-to-end flow across 7 property types
+3. **Regression Tests** — Output compared against 10 saved baselines
+4. **Simulation Battery** — 29/31 stress tests passing (concurrency, recovery, adversarial input)
+5. **Grade Pipeline** — 5-layer automated quality scoring (completeness, sanity, cross-reference, regression, audit)
+6. **Visual QA** — Computer vision opens output files, takes screenshots, verifies values against source documents
+7. **Adversarial Tests** — 13/13 passing (malicious PDFs, injection attempts, edge cases)
+
+Every agent is graded after every pipeline run. Any agent that scores below A- is automatically diagnosed, has its instructions adjusted, and is re-run — no human intervention required.
+
+## 4. How It Actually Works
+
+### 4.1 Infrastructure
+
+Axon runs 24/7 on a DigitalOcean VPS — Ubuntu 24.04, 8GB RAM, 4 vCPUs. It is not a chatbot that waits for questions. It is an autonomous agent that checks in every 30 minutes, scans for new deals, runs pipeline tasks, monitors system health, and reports results to the team through Discord.
+
+A Mac Mini M4 ($599) serves as a secondary node for browser automation. County record systems (property appraisers, clerks of court, tax collectors) block datacenter IP addresses — the Mac Mini provides a residential IP and a real browser environment for accessing these systems.
+
+### 4.2 The AI Model Stack
 
 | Task | Model | Cost |
 |------|-------|------|
-| Email classification and routing | Claude Haiku | ~$0.01/email |
-| Document extraction and scoring | Claude Sonnet | ~$0.004/document |
-| Complex underwriting synthesis | Claude Opus | ~$2-5/analysis |
+| Email classification, routing, quick categorization | Claude Haiku | ~$0.01/task |
+| Document extraction, deal scoring, standard analysis | Claude Sonnet | ~$0.004/document |
+| Complex underwriting, synthesis, ownership intelligence | Claude Opus | ~$2-5/analysis |
 
-Prompt caching reduces costs by approximately 90% for repeated schema patterns. The total AI cost for processing 197 deals through extraction was $0.83.
+Prompt caching reduces costs ~90% for repeated patterns.
 
-For deep pipeline analysis (all eight agents), the cost is approximately $3-8 per deal depending on document complexity and the number of external data sources consulted. Even at the high end, this represents less than 0.001% of a typical deal's asking price.
+### 4.3 Document Extraction (BRAID)
 
-### 3.3 The Build Process
+For deals with offering memoranda — the dense PDF packages that brokers send — we built a three-pass extraction system:
 
-The system was built using what we call the Factory pattern, inspired by Anthropic's own internal development methodology:
+**Pass 1 — Extract.** The model reads the full document and pulls 20 structured fields: property name, address, city, state, zip, property type, year built, total square footage, lot size, asking price, cap rate, NOI, price per square foot, occupancy, number of tenants, largest tenant, weighted average lease term, clear height, dock doors, and parking spaces. Each field gets a confidence score.
 
-1. **Planner** reads the specification and identifies the next quality gate to turn from RED to GREEN.
-2. **Builder** creates a feature branch and writes code according to the spec.
-3. **Evaluator** (a separate AI agent with fresh context) reviews the code, runs all tests, and either passes or rejects with specific feedback.
-4. **Cross-model review** uses a different AI model family (OpenAI Codex) to catch biases specific to any single model.
+**Pass 2 — Verify.** A second pass with a different prompt checks whether every extracted number actually appears in the source document. Disagreements between Pass 1 and Pass 2 are flagged.
 
-The builder never evaluates its own work. This separation is critical — when you self-evaluate, you rationalize your own bugs because you understand your intent. An evaluator with fresh context only sees the code, not the intent.
+**Pass 3 — Derive.** Missing fields are calculated where mathematically possible (price and cap rate known → derive NOI). Fields that cannot be verified or derived are marked absent — never estimated.
 
-The current codebase is 4,244 lines of Python across the core pipeline, with an additional 130+ tool scripts for data API integrations, browser automation, and quality assurance.
+### 4.4 The Agent Intelligence System
 
-## 4. Results
+Each agent learns from its work:
 
-### 4.1 Throughput
+- **Memory**: Before starting any analysis, agents recall prior learnings from a persistent database (252+ learnings stored, 22+ shared cross-agent insights)
+- **Agent-to-Agent Messaging**: Agents request information from each other mid-pipeline via a message bus
+- **Auto-Grading**: After every run, agents are graded A+ through F — below A- triggers automatic diagnosis and re-run
+- **Dynamic Tool Creation**: When an agent needs a data source that doesn't exist yet, it can generate a new API integration script from a 73+ tool registry
 
-The system processed 13,650 commercial real estate properties in 36 hours during an initial batch run. This included downloading offering memoranda, extracting structured data, scoring against investment criteria, and generating summary reports. Equivalent analyst work at 4 hours per deal: approximately 54,600 hours, or 26 analyst-years.
+## 5. Why This Matters Beyond Real Estate
 
-### 4.2 Accuracy
+The architecture we built is not specific to commercial real estate. The pattern — high-volume document intake, structured data extraction, multi-source enrichment, configurable scoring, specialist agents with domain tools — applies to any industry where professionals spend their time manually processing documents and making structured decisions.
 
-Across 10 regression baselines (6 real offering memoranda from actual broker submissions + 4 synthetic edge cases), the extraction engine achieves:
-- 20/20 fields extracted on well-formatted documents
-- Confidence scores above 0.8 on 18/20 fields (the two common low-confidence fields are WALT and clear height, which are inconsistently reported across OMs)
-- Cross-reference verification catches discrepancies between stated NOI and calculated NOI (price x cap rate) at a 10% tolerance
+### 5.1 The General Pattern
 
-### 4.3 Cost
+Any business that matches these criteria is a candidate:
 
-| Component | Monthly Cost |
-|-----------|-------------|
-| VPS (8GB/4vCPU) | $48 |
-| Mac Mini (amortized) | ~$25 |
-| External data APIs | ~$15-30 |
-| AI model usage (per 100 deals) | ~$0.40 extraction / ~$500 deep analysis |
-| **Total (100 deals/month)** | **~$120-600** |
+1. **High-volume document intake** — more documents arrive than humans can thoroughly review
+2. **Structured decision-making** — the decision can be broken into measurable criteria
+3. **External data enrichment** — public or licensed data sources add context beyond the documents
+4. **Specialist knowledge required** — the analysis needs domain expertise that is expensive to hire
+5. **Historical outcomes** — past decisions can be compared against what actually happened
 
-For context, a junior CRE analyst costs $65,000-85,000/year plus benefits. The system processes more deals, faster, at approximately 1% of the cost — and improves with every decision.
+### 5.2 Life Settlements and Insurance Underwriting
 
-## 5. Implications Beyond Commercial Real Estate
+Consider a firm that acquires life insurance policies on the secondary market. The underwriting process involves reviewing medical records — sometimes hundreds, sometimes 20,000 pages per individual — to forecast how long someone will live. The firm collects updated medical records every year and re-evaluates each policy.
 
-The architecture described here is not CRE-specific. The pattern — document intake, structured extraction, multi-source enrichment, configurable scoring, human-in-the-loop learning — applies to any domain where professionals spend significant time manually processing documents and making structured decisions.
+This maps directly onto the Axon architecture:
 
-### 5.1 Life Settlements and Insurance
+| Axon (CRE) | Life Settlement Equivalent |
+|------------|---------------------------|
+| Offering memoranda (20-200 pages) | Medical records (100-20,000 pages) |
+| 20 structured fields extracted | Diagnoses, medications, lab values, vital sign trends |
+| 9 specialist agents | Virtual specialist panel (oncologist, cardiologist, neurologist, etc.) |
+| County records, FEMA, Census, FRED | Actuarial tables, clinical databases, pharmaceutical databases |
+| Deal scoring (0-100) | Life expectancy forecast |
+| Distress signals (liens, foreclosure) | Condition progression (lab trends, medication changes) |
+| Human override → system learns | Actual mortality outcomes → strongest possible training signal |
 
-Consider a firm that acquires life insurance policies on the secondary market. The underwriting process involves reviewing medical records — sometimes thousands of pages per individual — to forecast mortality. The firm collects updated medical records annually and re-evaluates each policy.
+The critical advantage for life settlements: **you know the actual outcome.** In real estate, it takes years to know if a deal was good. In life settlements, the outcome is definitive — the prediction was right or it was wrong. A firm with 20 years of historical data — policies purchased, predictions made, actual outcomes observed — possesses one of the most valuable training datasets imaginable.
 
-This is structurally identical to CRE deal analysis:
-- **Document intake:** Medical records (hundreds to 20,000 pages) replace offering memoranda
-- **Extraction:** Diagnoses, medications, lab results, vital trends replace property financials
-- **Enrichment:** Actuarial tables, clinical research, pharmaceutical databases replace market data
-- **Scoring:** Mortality probability estimation replaces investment scoring
-- **Learning loop:** Actual mortality outcomes (known, since policies are held to maturity) provide ground truth feedback — even stronger signal than CRE override data
+The privacy constraint (HIPAA) is solved the same way we solved county record access — with local hardware. A Mac Mini in a closet, running AI models locally, all patient data staying on-premises. No data leaves the building.
 
-A life settlement firm with 20 years of historical data — policies purchased, mortality predictions made, actual outcomes observed — possesses an extraordinarily valuable training dataset. Every prediction that was wrong teaches the system where its models fail. Every prediction that was right reinforces what works.
+### 5.3 Other Applications
 
-The privacy constraint (HIPAA) is addressed through local deployment. The AI models and all patient data reside on hardware physically within the firm's control. No data transits public cloud infrastructure. The system operates as an additional input to the underwriting process — a virtual panel of specialists that reviews every file — rather than a replacement for human judgment.
-
-### 5.2 The General Pattern
-
-Any industry that matches the following criteria is a candidate for this approach:
-
-1. **High-volume document intake** — receiving more documents than humans can thoroughly review
-2. **Structured decision-making** — the decision can be decomposed into measurable criteria
-3. **External data enrichment** — public or licensed data sources can supplement the primary documents
-4. **Historical outcomes** — past decisions can be evaluated against actual results
-5. **Privacy requirements** — sensitive data necessitates controlled infrastructure
-
-Examples include: credit underwriting, legal discovery, regulatory compliance review, pharmaceutical clinical trial analysis, and insurance claims processing.
+- **Credit underwriting** — loan applications instead of OMs, credit bureau data instead of county records
+- **Legal due diligence** — contract review, regulatory filings, litigation risk
+- **Insurance claims** — damage assessment, fraud detection, comparable claim analysis
+- **Pharmaceutical research** — clinical trial data extraction, adverse event monitoring
+- **Regulatory compliance** — document review, violation detection, remediation tracking
 
 ## 6. What We Learned
 
-**The harness matters more than the model.** Large language models are capable of extraordinary analysis. The engineering challenge is not getting them to produce good output once — it is getting them to produce reliable output every time. The seven-layer quality harness we built catches errors that no single test would find. The adversarial suite catches errors that no honest test would simulate.
+**Start with the data, not the model.** The most valuable thing we built was not the AI pipeline — it was the 130+ tool integrations that feed it real data. County tax records, corporate registries, background checks, flood maps, construction permits — that is what turns a document summarizer into an intelligence system.
 
-**Cost is not the barrier.** At $0.004 per document extraction, AI model costs are negligible compared to the value of the decisions they inform. The real cost is building the infrastructure to make the output trustworthy.
+**Agents need specialization.** A single general-purpose AI trying to do everything produces mediocre analysis. Nine specialists, each with deep domain knowledge and curated tools, produce work that looks like it came from a team of senior analysts.
 
-**The moat is in the learning loop.** Technology can be replicated. What cannot be replicated is 12 months of a specific firm's decision patterns, encoded into scoring weights that predict their preferences. The system becomes more valuable — and harder to replace — with every decision it processes.
+**The quality harness is the product.** Anyone can get an AI to produce a good analysis once. The engineering challenge is making it reliable every time, across thousands of documents, without human oversight. Seven layers of testing is what makes the difference between a demo and a system you can trust.
 
-**Privacy-first architecture enables adoption.** Firms handling sensitive data (medical records, financial information, legal documents) will not upload that data to third-party cloud services. Local deployment on controlled hardware — a Mac Mini in a closet — eliminates this objection entirely.
-
-## 7. About Prelium
-
-Prelium is an AI consulting firm that builds autonomous analysis systems for data-intensive businesses. We go into a firm, study their workflow, and wire AI into their existing tools. The client never sees our software — they see their Excel auto-populate, their inbox pre-sorted, their reports pre-written.
-
-Our team:
-- **Pierce Millar** — COO. Business development, client relationships, workflow analysis.
-- **Jackson [Redacted]** — CEO. System architecture, AI engineering, pipeline development.
-- **Keegan Tingey** — CMO. Growth strategy, market positioning, operations.
-
-Contact: hello@prelium.ai | prelium.ai
+**Two people can build what used to require a team.** Axon was built by two people in six months. It does the work of 26 analysts. The gap between what a small team can build with AI and what used to require an entire department is wider than most people realize — and it is getting wider every month.
 
 ---
 
-*This document was prepared for informational purposes. Technical details have been simplified for accessibility. The system described is in active development with production deployments underway. All statistics cited are from verified internal records as of April 2026.*
+## About the Team
+
+**Pierce Millar** — COO. Business development, workflow analysis, client relationships. Founded the Dawn's Business Institute at Cathedral Catholic High School. San Diego, CA.
+
+**Jackson Kiil** — CEO. System architecture, AI engineering, pipeline development. Stanford '25. Oakland, CA.
+
+**Keegan Tingey** — CMO. Growth strategy, market positioning, operations.
+
+**Axon** — The ninth agent. Runs 24/7. Never sleeps. Checks in every 30 minutes. Has processed 12,360+ deals and counting.
+
+Contact: hello@prelium.ai | [prelium.ai](https://prelium.ai)
+
+---
+
+*This document describes a system in active development and production use. All statistics are from verified internal records as of April 2026. Technical details have been simplified for accessibility.*
